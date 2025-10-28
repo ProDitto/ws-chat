@@ -1,32 +1,36 @@
-# --- Build Stage ---
-FROM golang:1.21-alpine AS builder
+# Stage 1: Build frontend assets
+FROM node:18-alpine AS frontend-builder
+WORKDIR /app/frontend
+COPY quikchat-frontend/package*.json ./
+RUN npm install
+COPY quikchat-frontend/ ./
+RUN npm run build
 
+# Stage 2: Build backend application
+FROM golang:1.21-alpine AS backend-builder
 WORKDIR /app
-
-# Copy go.mod and go.sum files to download dependencies
-COPY go.mod go.sum ./
+# Copy Go module files
+COPY quikchat-backend/go.mod quikchat-backend/go.sum ./
 RUN go mod download
+# Copy backend source
+COPY quikchat-backend/ ./
+# Copy frontend assets from the previous stage
+COPY --from=frontend-builder /app/frontend/public ./web
+# Build the backend binary
+RUN CGO_ENABLED=0 GOOS=linux go build -o /quikchat ./cmd/api
 
-# Copy the source code
-COPY . .
-
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o ./bin/quikchat ./cmd/api/main.go
-
-# --- Final Stage ---
+# Stage 3: Final production image
 FROM alpine:latest
-
 WORKDIR /root/
+# Copy the binary from the builder stage
+COPY --from=backend-builder /quikchat .
+# Copy the static web assets
+COPY --from=backend-builder /app/web ./web
+# Copy database migrations
+COPY quikchat-backend/migrations ./migrations
+# Copy the example env file
+COPY quikchat-backend/.env.example .
 
-# Copy the pre-built binary from the builder stage
-COPY --from=builder /app/bin/quikchat .
-
-# Copy migrations
-COPY migrations ./migrations
-
-# Expose port 8080 to the outside world
 EXPOSE 8080
-
-# Command to run the executable
 CMD ["./quikchat"]
 

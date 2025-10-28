@@ -1,13 +1,16 @@
 package router
 
 import (
+	"log/slog"
 	"net/http"
-	"quikchat/internal/adapter/handler/http/handler"
-	"quikchat/internal/adapter/ws"
-	"quikchat/pkg/middleware"
+	"os"
+	"path/filepath"
 
 	"github.com/go-chi/chi/v5"
 	chi_middleware "github.com/go-chi/chi/v5/middleware"
+	"quikchat/internal/adapter/handler/http/handler"
+	"quikchat/internal/adapter/ws"
+	"quikchat/pkg/middleware"
 )
 
 func New(
@@ -21,58 +24,104 @@ func New(
 ) http.Handler {
 	r := chi.NewRouter()
 
+	// Middleware
+	r.Use(chi_middleware.RequestID)
+	r.Use(chi_middleware.RealIP)
+	r.Use(middleware.NewStructuredLogger(slog.Default()))
 	r.Use(chi_middleware.Recoverer)
-	r.Use(middleware.RequestLogger)
 
 	// Public routes
-	r.Route("/api/v1/auth", func(r chi.Router) {
-		r.Post("/register", userHandler.Register)
-		r.Post("/login", userHandler.Login)
-	})
-
-	// Protected routes
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(middleware.Auth(jwtSecret))
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RateLimiter(2, 5)) // 2 req/sec, burst of 5
+			r.Post("/auth/register", userHandler.Register)
+			r.Post("/auth/login", userHandler.Login)
+		})
 
-		// User routes
-		r.Get("/users/me", userHandler.GetCurrentUser)
-		r.Get("/users/{username}", userHandler.GetProfileByUsername)
-		r.Put("/users/me/profile", userHandler.UpdateProfile)
-		r.Post("/users/{username}/block", userHandler.BlockUser)
-		r.Delete("/users/{username}/unblock", userHandler.UnblockUser)
-
-		// Friend routes
-		r.Get("/friends", friendHandler.ListFriends)
-		r.Post("/friends/requests", friendHandler.SendRequest)
-		r.Get("/friends/requests/incoming", friendHandler.ListIncomingRequests)
-		r.Post("/friends/requests/{requestID}", friendHandler.RespondToRequest)
-		r.Delete("/friends/{username}", friendHandler.Unfriend)
-
-		// Group routes
-		r.Post("/groups", groupHandler.CreateGroup)
-		r.Get("/groups/search", groupHandler.SearchGroups)
-		r.Get("/groups/{groupID}", groupHandler.GetGroupDetails)
-		r.Post("/groups/{groupID}/join", groupHandler.JoinGroup)
-		r.Post("/groups/{groupID}/leave", groupHandler.LeaveGroup)
-
-		// Message routes
-		r.Post("/conversations/{conversationID}/messages", messageHandler.SendMessage)
-		r.Get("/conversations/{conversationID}/messages", messageHandler.GetMessages)
-		r.Post("/media/presigned-url", messageHandler.GetPresignedURL)
-
-		// Notification routes
-		r.Get("/notifications", notificationHandler.GetNotifications)
-		r.Get("/notifications/unread-count", notificationHandler.GetUnreadCount)
-		r.Post("/notifications/read-all", notificationHandler.MarkAllAsRead)
-		r.Post("/notifications/{notificationID}/read", notificationHandler.MarkAsRead)
-
-		// WebSocket route
+		// WebSocket
 		r.Get("/ws", messageHandler.ServeWs)
+
+		// Protected routes
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.Auth(jwtSecret))
+
+			// Users
+			r.Get("/users/me", userHandler.GetCurrentUser)
+			r.Get("/users/profile/{username}", userHandler.GetProfileByUsername)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RateLimiter(5, 10)) // 5 req/sec, burst of 10 for profile updates
+				r.Put("/users/me/profile", userHandler.UpdateProfile)
+			})
+			r.Post("/users/block/{username}", userHandler.BlockUser)
+			r.Delete("/users/unblock/{username}", userHandler.UnblockUser)
+
+			// Friends
+			r.Route("/friends", func(r chi.Router) {
+				r.Get("/", friendHandler.ListFriends)
+				r.Post("/requests", friendHandler.SendRequest)
+				r.Get("/requests", friendHandler.ListIncomingRequests)
+				r.Post("/requests/{requestID}", friendHandler.RespondToRequest)
+				r.Delete("/{username}", friendHandler.Unfriend)
+			})
+
+			// Groups
+			r.Route("/groups", func(r chi.Router) {
+				r.Post("/", groupHandler.CreateGroup)
+				r.Get("/search", groupHandler.SearchGroups)
+				r.Get("/{groupID}", groupHandler.GetGroupDetails)
+				r.Post("/{groupID}/join", groupHandler.JoinGroup)
+				r.Post("/{groupID}/leave", groupHandler.LeaveGroup)
+			})
+
+			// Messages
+			r.Get("/conversations/{conversationID}/messages", messageHandler.GetMessages)
+			r.Post("/conversations/{conversationID}/messages", messageHandler.SendMessage)
+			r.Get("/media/upload-url", messageHandler.GetPresignedURL)
+
+			// Notifications
+			r.Route("/notifications", func(r chi.Router) {
+				r.Get("/", notificationHandler.GetNotifications)
+				r.Get("/unread-count", notificationHandler.GetUnreadCount)
+				r.Post("/read-all", notificationHandler.MarkAllAsRead)
+				r.Post("/{notificationID}/read", notificationHandler.MarkAsRead)
+			})
+		})
 	})
 
-	// Serve frontend
-	fs := http.FileServer(http.Dir("./web"))
-	r.Handle("/*", fs)
+	// Serve frontend static files
+	workDir, _ := os.Getwd()
+	filesDir := http.Dir(filepath.Join(workDir, "web"))
+	FileServer(r, "/", filesDir)
 
 	return r
 }
+
+// FileServer conveniently sets up a http.FileServer handler to serve
+// static files from a http.FileSystem.
+func FileServer(r chi.Router, path string, root http.FileSystem) {
+	if _, err := os.Stat(root.(http.Dir).String()); os.IsNotExist(err) {
+		slog.Warn("static file directory does not exist, skipping file server", "path", root.(http.Dir).String())
+		return
+	}
+
+	fs := http.StripPrefix(path, http.FileServer(root))
+
+	if path != "/" && path[len(path)-1] != '/' {
+		r.Get(path, http.RedirectHandler(path+"/", http.StatusMovedPermanently).ServeHTTP)
+		path += "/"
+	}
+	path += "*"
+
+	r.Get(path, func(w http.ResponseWriter, r *http.Request) {
+		// Check if the file exists
+		f, err := root.Open(r.URL.Path)
+		if os.IsNotExist(err) {
+			// If not found, serve index.html for SPA routing
+			http.ServeFile(w, r, filepath.Join(root.(http.Dir).String(), "index.html"))
+			return
+		}
+		f.Close()
+		fs.ServeHTTP(w, r)
+	})
+}
+

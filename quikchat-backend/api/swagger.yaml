@@ -1,8 +1,457 @@
-# Placeholder for OpenAPI spec. Will be populated in a future step.
 openapi: 3.0.0
 info:
   title: QuikChat API
   version: 1.0.0
   description: API for the QuikChat real-time messaging platform.
-paths: {}
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      summary: Register a new user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid input
+        '409':
+          description: Username already exists
+  /auth/login:
+    post:
+      summary: Log in a user
+      tags: [Auth]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          description: Invalid input
+        '401':
+          description: Invalid credentials
+
+  /users/me:
+    get:
+      summary: Get current user's profile
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /users/profile/{username}:
+    get:
+      summary: Get user profile by username
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '404':
+          description: User not found
+  /users/me/profile:
+    put:
+      summary: Update current user's profile
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /users/block/{username}:
+    post:
+      summary: Block a user
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User blocked successfully
+  /users/unblock/{username}:
+    delete:
+      summary: Unblock a user
+      tags: [Users]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User unblocked successfully
+
+  /friends/requests:
+    post:
+      summary: Send a friend request
+      tags: [Friends]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+      responses:
+        '201':
+          description: Friend request sent
+    get:
+      summary: List incoming friend requests
+      tags: [Friends]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of friend requests
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FriendRequest'
+  /friends/requests/{requestID}:
+    post:
+      summary: Respond to a friend request
+      tags: [Friends]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: requestID
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action:
+                  type: string
+                  enum: [accept, decline]
+      responses:
+        '204':
+          description: Request responded to successfully
+  /friends:
+    get:
+      summary: List all friends
+      tags: [Friends]
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: A list of friends
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/User'
+  /friends/{username}:
+    delete:
+      summary: Unfriend a user
+      tags: [Friends]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: User unfriended successfully
+
+  /groups:
+    post:
+      summary: Create a new group
+      tags: [Groups]
+      security:
+        - bearerAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGroupRequest'
+      responses:
+        '201':
+          description: Group created successfully
+  /groups/search:
+    get:
+      summary: Search for groups by tag
+      tags: [Groups]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tag
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: A list of matching groups
+  /groups/{groupID}:
+    get:
+      summary: Get group details
+      tags: [Groups]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Group details and member list
+  /groups/{groupID}/join:
+    post:
+      summary: Join a group
+      tags: [Groups]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Joined group successfully
+  /groups/{groupID}/leave:
+    post:
+      summary: Leave a group
+      tags: [Groups]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: groupID
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Left group successfully
+
+  /conversations/{conversationID}/messages:
+    get:
+      summary: Get messages for a conversation
+      tags: [Messages]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: conversationID
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: cursor
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: A list of messages
+    post:
+      summary: Send a message
+      tags: [Messages]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: conversationID
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SendMessageRequest'
+      responses:
+        '201':
+          description: Message sent successfully
+
+  /media/upload-url:
+    get:
+      summary: Get a presigned URL for media upload
+      tags: [Messages]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filename
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Presigned URL and object key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  upload_url:
+                    type: string
+                  object_key:
+                    type: string
+
+  /ws:
+    get:
+      summary: WebSocket connection endpoint
+      tags: [Real-time]
+      parameters:
+        - name: auth
+          in: query
+          required: true
+          schema:
+            type: string
+          description: JWT access token
+      responses:
+        '101':
+          description: Switching protocols to WebSocket
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        username:
+          type: string
+        display_name:
+          type: string
+        profile_image_url:
+          type: string
+          nullable: true
+    RegisterRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    LoginRequest:
+      type: object
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+    AuthResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        refresh_token:
+          type: string
+    UpdateProfileRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        profile_image_url:
+          type: string
+    FriendRequest:
+      type: object
+      properties:
+        id:
+          type: integer
+        sender_id:
+          type: integer
+        receiver_id:
+          type: integer
+        status:
+          type: string
+    CreateGroupRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        tag:
+          type: string
+        description:
+          type: string
+    SendMessageRequest:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [text, media]
+        content:
+          type: string
 

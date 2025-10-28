@@ -3,8 +3,8 @@ version: '3.8'
 services:
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: quikchat-backend/Dockerfile
     ports:
       - "8080:8080"
     depends_on:
@@ -12,25 +12,28 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file:
-      - .env
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://user:password@db:5432/quikchat?sslmode=disable
+      - REDIS_ADDRESS=redis:6379
+      - JWT_SECRET_KEY=a-very-secret-key-that-is-long-and-secure
     volumes:
-      - .:/app
-    command: ["./quikchat"]
+      - ../quikchat-backend:/app/quikchat-backend
+      - ../quikchat-frontend:/app/quikchat-frontend
 
   db:
     image: postgres:15-alpine
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data/
+      - postgres_data:/var/lib/postgresql/data
     environment:
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=quikchat
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U user -d quikchat"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
 
@@ -38,13 +41,13 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

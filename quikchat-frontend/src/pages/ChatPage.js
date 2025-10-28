@@ -1,121 +1,133 @@
-import { Navbar } from '../components/Navbar.js';
+import { fetchMessages, sendMessage, getPresignedUrl, uploadFile } from '../api/messages.js';
 import { MessageDisplay } from '../components/MessageDisplay.js';
 import { chatStore } from '../store/chatStore.js';
-import { WebSocketService } from '../services/WebSocketService.js';
-import { fetchMessages, sendMessage, getPresignedUrl, uploadFile } from '../api/messages.js';
+import { connect as connectWebSocket } from '../services/WebSocketService.js';
 
-// Hardcoded for now. In a real app, this would come from a user store after login.
-// For now, we assume user ID 1 is logged in and talking in conversation 1.
-// You would need to run a SQL command to create these, e.g.:
-// INSERT INTO conversations (id, type) VALUES (1, 'private');
-// INSERT INTO conversation_participants (conversation_id, user_id) VALUES (1, 1);
-// INSERT INTO conversation_participants (conversation_id, user_id) VALUES (1, 2);
-const CURRENT_USER_ID = 1;
-const CONVERSATION_ID = 1;
+// For demonstration purposes
+const CURRENT_USER_ID = parseInt(localStorage.getItem('user_id'), 10);
+const CONVERSATION_ID = 1; // Hardcoded for now
 
 export function ChatPage() {
-    const page = document.createElement('div');
-    page.className = 'h-screen flex flex-col';
-    page.appendChild(Navbar());
+    const container = document.createElement('div');
+    container.className = 'h-full w-full flex flex-col md:flex-row overflow-hidden';
 
-    const chatContainer = document.createElement('div');
-    chatContainer.className = 'flex-1 flex flex-col p-4 overflow-hidden';
+    // --- Sidebar (Conversations List) ---
+    const sidebar = document.createElement('div');
+    sidebar.className = 'w-full md:w-1/4 bg-gray-800 text-white p-4 flex-col hidden md:flex'; // Hidden on mobile
+    sidebar.innerHTML = `
+        <h2 class="text-lg font-bold mb-4">Conversations</h2>
+        <ul>
+            <li class="p-2 rounded bg-gray-700 cursor-pointer">General Chat</li>
+            <!-- More conversations would be listed here -->
+        </ul>
+    `;
 
-    const messagesArea = document.createElement('div');
-    messagesArea.id = 'messages-area';
-    messagesArea.className = 'flex-1 overflow-y-auto flex flex-col-reverse p-4 bg-gray-50';
-    
-    const messageList = document.createElement('div');
-    messagesArea.appendChild(messageList);
+    // --- Main Chat Area ---
+    const chatArea = document.createElement('div');
+    chatArea.className = 'w-full md:flex-1 flex flex-col bg-gray-700';
 
+    // --- Chat Header ---
+    const chatHeader = document.createElement('div');
+    chatHeader.className = 'bg-gray-800 text-white p-4 font-bold';
+    chatHeader.textContent = 'General Chat';
+
+    // --- Messages Container ---
+    const messagesContainer = document.createElement('div');
+    messagesContainer.id = 'messages-container';
+    messagesContainer.className = 'flex-1 p-4 overflow-y-auto flex flex-col-reverse'; // Reverse for new messages at bottom
+    const messagesList = document.createElement('div');
+    messagesContainer.appendChild(messagesList);
+
+    // --- Message Input Form ---
     const form = document.createElement('form');
-    form.className = 'mt-4 flex items-center gap-2';
-
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.className = 'hidden';
-    fileInput.id = 'file-input';
-    fileInput.accept = 'image/jpeg,image/png,image/gif,video/mp4';
-
-    const attachButton = document.createElement('button');
-    attachButton.type = 'button';
-    attachButton.innerHTML = `<svg class="w-6 h-6 text-gray-500" aria-hidden="true" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 20 18"><path fill="currentColor" d="M13 5.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0ZM7.565 7.423 4.5 14h11.518l-2.516-3.71L11 13 7.565 7.423Z"/><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 1H2a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1Z"/><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 5.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0Z"/></svg>`;
-    attachButton.className = 'p-2 rounded-full bg-gray-200 hover:bg-gray-300';
-    attachButton.onclick = () => fileInput.click();
-
-    const textInput = document.createElement('input');
-    textInput.type = 'text';
-    textInput.placeholder = 'Type a message...';
-    textInput.className = 'flex-1 p-2 border rounded-lg';
-    textInput.autocomplete = 'off';
-
+    form.className = 'p-4 bg-gray-800 flex items-center gap-2';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Type a message...';
+    input.className = 'flex-1 p-2 rounded bg-gray-600 text-white border border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500';
     const sendButton = document.createElement('button');
     sendButton.type = 'submit';
     sendButton.textContent = 'Send';
-    sendButton.className = 'px-4 py-2 bg-blue-500 text-white rounded-lg';
+    sendButton.className = 'bg-blue-500 hover:bg-blue-600 text-white p-2 rounded';
 
-    form.append(attachButton, fileInput, textInput, sendButton);
-    chatContainer.append(messagesArea, form);
-    page.appendChild(chatContainer);
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.id = 'file-upload';
+    fileInput.accept = 'image/jpeg,image/png,image/gif,video/mp4';
+    fileInput.className = 'hidden';
+
+    const uploadButton = document.createElement('button');
+    uploadButton.type = 'button';
+    uploadButton.textContent = '📎';
+    uploadButton.className = 'bg-gray-600 hover:bg-gray-500 text-white p-2 rounded';
+    uploadButton.onclick = () => fileInput.click();
+
+    form.append(uploadButton, fileInput, input, sendButton);
+    chatArea.append(chatHeader, messagesContainer, form);
+    container.append(sidebar, chatArea);
 
     let isLoading = false;
     let hasMoreMessages = true;
-    let oldestMessageId = null;
+    let lastMessageId = null;
 
-    const renderMessages = () => {
-        const state = chatStore.getState();
-        const messages = state.messages[CONVERSATION_ID] || [];
-        messageList.innerHTML = '';
-        messages.forEach(msg => {
-            const isOwn = msg.sender_id === CURRENT_USER_ID;
-            messageList.prepend(MessageDisplay({ message: msg, isOwnMessage: isOwn }));
-        });
-        if (messages.length > 0) {
-            oldestMessageId = messages[0].id;
+    const renderMessages = (messages, prepend = false) => {
+        if (messages.length === 0 && prepend) {
+            hasMoreMessages = false;
+            return;
         }
+        messages.forEach(msg => {
+            const messageEl = MessageDisplay({
+                message: msg,
+                isOwnMessage: msg.sender_id === CURRENT_USER_ID
+            });
+            if (prepend) {
+                messagesList.prepend(messageEl);
+            } else {
+                messagesList.appendChild(messageEl);
+            }
+        });
     };
 
     const loadMoreMessages = async () => {
         if (isLoading || !hasMoreMessages) return;
         isLoading = true;
         try {
-            const olderMessages = await fetchMessages(CONVERSATION_ID, oldestMessageId);
-            if (olderMessages && olderMessages.length > 0) {
+            const cursor = chatStore.getState().messages[CONVERSATION_ID]?.[0]?.id;
+            if (!cursor) {
+                hasMoreMessages = false;
+                return;
+            }
+            const olderMessages = await fetchMessages(CONVERSATION_ID, cursor);
+            if (olderMessages.length > 0) {
                 chatStore.prependMessages(CONVERSATION_ID, olderMessages);
             } else {
                 hasMoreMessages = false;
             }
         } catch (error) {
-            console.error('Failed to load more messages:', error);
+            console.error('Failed to load older messages:', error);
         } finally {
             isLoading = false;
         }
     };
 
-    messagesArea.addEventListener('scroll', () => {
-        if (messagesArea.scrollTop === 0) {
+    messagesContainer.addEventListener('scroll', () => {
+        // In reversed flex container, scrollTop is negative or 0.
+        // We check if we are near the "top" which is visually the bottom of the scrollable area.
+        if (messagesContainer.scrollHeight + messagesContainer.scrollTop - messagesContainer.clientHeight < 1) {
             loadMoreMessages();
         }
     });
 
-    const handleNewMessage = (message) => {
-        if (message.conversation_id === CONVERSATION_ID) {
-            chatStore.addMessage(CONVERSATION_ID, message);
-            if (messagesArea.scrollHeight - messagesArea.scrollTop - messagesArea.clientHeight < 200) {
-                setTimeout(() => messagesArea.scrollTop = messagesArea.scrollHeight, 0);
-            }
-        }
-    };
-
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const content = textInput.value.trim();
+        const content = input.value.trim();
         if (content) {
             try {
                 await sendMessage(CONVERSATION_ID, { type: 'text', content });
-                textInput.value = '';
+                input.value = '';
             } catch (error) {
                 console.error('Failed to send message:', error);
+                // TODO: Show error tooltip
             }
         }
     });
@@ -123,27 +135,46 @@ export function ChatPage() {
     fileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+
+        // Optional: Add file size check here (<= 25MB)
+
         try {
-            const { upload_url, key } = await getPresignedUrl(file.name);
+            const { upload_url, object_key } = await getPresignedUrl(file.name);
             await uploadFile(upload_url, file);
-            await sendMessage(CONVERSATION_ID, { type: 'media', content: key });
+            await sendMessage(CONVERSATION_ID, { type: 'media', content: object_key });
         } catch (error) {
-            console.error('Failed to upload file and send message:', error);
+            console.error('Failed to upload file:', error);
+            // TODO: Show error tooltip
         }
     });
 
-    const unsubscribe = chatStore.subscribe(renderMessages);
-    WebSocketService.addMessageListener(handleNewMessage);
-    
+    // Subscribe to chat store updates
+    const unsubscribe = chatStore.subscribe(() => {
+        const state = chatStore.getState();
+        const currentMessages = state.messages[CONVERSATION_ID] || [];
+        messagesList.innerHTML = ''; // Clear and re-render
+        renderMessages(currentMessages);
+    });
+
+    // Initial load
     chatStore.setActiveConversation(CONVERSATION_ID);
-    loadMoreMessages().then(() => {
-        setTimeout(() => messagesArea.scrollTop = messagesArea.scrollHeight, 0);
-    });
+    fetchMessages(CONVERSATION_ID)
+        .then(messages => {
+            chatStore.addMessage(CONVERSATION_ID, messages); // This will trigger the subscription
+        })
+        .catch(error => console.error('Failed to fetch initial messages:', error));
 
-    page.addEventListener('DOMNodeRemoved', () => {
-        unsubscribe();
-        WebSocketService.removeMessageListener(handleNewMessage);
-    });
+    // Connect WebSocket
+    connectWebSocket();
 
-    return page;
+    // Cleanup on component removal
+    const observer = new MutationObserver((mutations, obs) => {
+        if (!document.body.contains(container)) {
+            unsubscribe();
+            obs.disconnect();
+        }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    return container;
 }

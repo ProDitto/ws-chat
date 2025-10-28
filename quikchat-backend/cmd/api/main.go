@@ -65,7 +65,7 @@ func main() {
 	userService := service.NewUserService(userRepo, blockRepo, cfg.JWTSecretKey, cfg.AccessTokenExpiry, cfg.RefreshTokenExpiry)
 	friendService := service.NewFriendService(friendRepo, userRepo, blockRepo, notificationService)
 	messageService := service.NewMessageService(msgRepo, convoRepo, userRepo, notificationService, s3Client, hub)
-	groupService := service.NewGroupService(groupRepo, userRepo, convoRepo, notificationService)
+	groupService := service.NewGroupService(groupRepo, userRepo, convoRepo, notificationService, cfg.MaxGroupMembers)
 
 	// Initialize HTTP handlers
 	userHandler := handler.NewUserHandler(userService)
@@ -107,3 +107,4 @@ func main() {
 
 	slog.Info("server exited properly")
 }
+
