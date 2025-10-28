@@ -1,0 +1,20 @@
+{
+  "name": "quikchat-frontend",
+  "version": "1.0.0",
+  "description": "Vanilla JS frontend for QuikChat",
+  "main": "src/index.js",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/styles/input.css -o ./public/styles/tailwind.css",
+    "watch:css": "tailwindcss -i ./src/styles/input.css -o ./public/styles/tailwind.css --watch",
+    "dev": "npm run watch:css"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.3"
+  }
+}
+```
