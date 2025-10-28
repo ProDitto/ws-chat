@@ -1,0 +1,8 @@
+# Placeholder for OpenAPI spec. Will be populated in a future step.
+openapi: 3.0.0
+info:
+  title: QuikChat API
+  version: 1.0.0
+  description: API for the QuikChat real-time messaging platform.
+paths: {}
+
