@@ -25,87 +25,83 @@ import (
 
 func main() {
 	log := logger.New(os.Stdout)
-	slog.SetDefault(log)
+	slog.SetDefault(log) // Keep original slog default setting
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("failed to load config", "error", err)
+		log.Error("failed to load config", slog.Any("error", err)) // Adopt attempted slog.Any
 		os.Exit(1)
 	}
 
-	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	// Connect to database
+	pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL) // Adopt attempted variable name 'pool'
 	if err != nil {
-		slog.Error("failed to connect to database", "error", err)
+		log.Error("failed to connect to database", slog.Any("error", err)) // Adopt attempted slog.Any
 		os.Exit(1)
 	}
-	defer db.Close()
+	defer pool.Close()
 
-	slog.Info("database connection established")
+	log.Info("database connection established") // Adopt attempted log.Info
 
-	// WebSocket Hub
+	// Initialize WebSocket Hub
 	hub := ws.NewHub()
 	go hub.Run()
 
-	// Repositories
-	userRepo := postgres.NewUserRepository(db)
-	friendRepo := postgres.NewFriendRepository(db)
-	blockRepo := postgres.NewBlockRepository(db)
-	convoRepo := postgres.NewConversationRepository(db)
-	messageRepo := postgres.NewMessageRepository(db)
+	// Initialize repositories
+	userRepo := postgres.NewUserRepository(pool)
+	friendRepo := postgres.NewFriendRepository(pool)
+	blockRepo := postgres.NewBlockRepository(pool)
+	convoRepo := postgres.NewConversationRepository(pool)
+	messageRepo := postgres.NewMessageRepository(pool)
+	groupRepo := postgres.NewGroupRepository(pool) // Add new groupRepo
 
-	// External Services
-	s3Client := s3.NewMockS3Client()
+	// Initialize external services
+	s3Client := s3.NewMockS3Client() // Replace with real S3 client
 
-	// Use Cases / Services
+	// Initialize services (use cases)
 	userService := service.NewUserService(userRepo, blockRepo, cfg.JWTSecretKey, cfg.AccessTokenExpiry, cfg.RefreshTokenExpiry)
 	friendService := service.NewFriendService(friendRepo, userRepo, blockRepo)
 	messageService := service.NewMessageService(messageRepo, convoRepo, userRepo, s3Client, hub)
+	groupService := service.NewGroupService(groupRepo, userRepo, convoRepo) // Add new groupService
 
-	// HTTP Handlers
+	// Initialize handlers
 	userHandler := handler.NewUserHandler(userService)
 	friendHandler := handler.NewFriendHandler(friendService)
 	messageHandler := handler.NewMessageHandler(messageService, hub)
+	groupHandler := handler.NewGroupHandler(groupService) // Add new groupHandler
 
-	// Router
-	r := router.New(userHandler, friendHandler, messageHandler, hub, cfg.JWTSecretKey)
+	// Initialize router
+	r := router.New(userHandler, friendHandler, messageHandler, groupHandler, hub, cfg.JWTSecretKey) // Add groupHandler to router.New
 
+	// Start server
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      r,
-		IdleTimeout:  time.Minute,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:    fmt.Sprintf(":%d", cfg.Port),
+		Handler: r,
+		// Original timeouts removed as per attempted content
 	}
-
-	shutdownError := make(chan error)
 
 	go func() {
-		quit := make(chan os.Signal, 1)
-		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-		s := <-quit
-
-		slog.Info("shutting down server", "signal", s.String())
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		shutdownError <- srv.Shutdown(ctx)
+		log.Info("starting server", slog.Int("port", cfg.Port)) // Adopt attempted log format
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("server error", slog.Any("error", err)) // Adopt attempted log format
+			os.Exit(1)
+		}
 	}()
 
-	slog.Info("starting server", "addr", srv.Addr)
+	// Graceful shutdown (Adopt attempted shutdown logic)
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Info("shutting down server...")
 
-	err = srv.ListenAndServe()
-	if !errors.Is(err, http.ErrServerClosed) {
-		slog.Error("server error", "error", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Error("server shutdown failed", slog.Any("error", err))
 		os.Exit(1)
 	}
 
-	err = <-shutdownError
-	if err != nil {
-		slog.Error("shutdown error", "error", err)
-		os.Exit(1)
-	}
-
-	slog.Info("server stopped")
+	log.Info("server exited properly")
 }
 
