@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,9 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	"quikchat/internal/adapter/external/s3"
 	"quikchat/internal/adapter/handler/http/handler"
 	"quikchat/internal/adapter/handler/http/router"
 	"quikchat/internal/adapter/storage/postgres"
+	"quikchat/internal/adapter/ws"
 	"quikchat/internal/service"
 	"quikchat/pkg/config"
 	"quikchat/pkg/logger"
@@ -22,65 +25,87 @@ import (
 
 func main() {
 	log := logger.New(os.Stdout)
-	log.Info("starting quikchat server")
+	slog.SetDefault(log)
 
 	cfg, err := config.Load()
 	if err != nil {
-		log.Error("failed to load config", slog.String("error", err.Error()))
+		slog.Error("failed to load config", "error", err)
 		os.Exit(1)
 	}
 
-	// Database connection
-	dbpool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
-		log.Error("unable to connect to database", slog.String("error", err.Error()))
+		slog.Error("failed to connect to database", "error", err)
 		os.Exit(1)
 	}
-	defer dbpool.Close()
+	defer db.Close()
+
+	slog.Info("database connection established")
+
+	// WebSocket Hub
+	hub := ws.NewHub()
+	go hub.Run()
 
 	// Repositories
-	userRepo := postgres.NewUserRepository(dbpool)
-	friendRepo := postgres.NewFriendRepository(dbpool)
-	blockRepo := postgres.NewBlockRepository(dbpool)
+	userRepo := postgres.NewUserRepository(db)
+	friendRepo := postgres.NewFriendRepository(db)
+	blockRepo := postgres.NewBlockRepository(db)
+	convoRepo := postgres.NewConversationRepository(db)
+	messageRepo := postgres.NewMessageRepository(db)
 
-	// Services (Use Cases)
+	// External Services
+	s3Client := s3.NewMockS3Client()
+
+	// Use Cases / Services
 	userService := service.NewUserService(userRepo, blockRepo, cfg.JWTSecretKey, cfg.AccessTokenExpiry, cfg.RefreshTokenExpiry)
 	friendService := service.NewFriendService(friendRepo, userRepo, blockRepo)
+	messageService := service.NewMessageService(messageRepo, convoRepo, userRepo, s3Client, hub)
 
 	// HTTP Handlers
 	userHandler := handler.NewUserHandler(userService)
 	friendHandler := handler.NewFriendHandler(friendService)
+	messageHandler := handler.NewMessageHandler(messageService, hub)
 
 	// Router
-	r := router.New(userHandler, friendHandler, cfg.JWTSecretKey)
+	r := router.New(userHandler, friendHandler, messageHandler, hub, cfg.JWTSecretKey)
 
-	// Server setup
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.Port),
-		Handler: r,
+		Addr:         fmt.Sprintf(":%d", cfg.Port),
+		Handler:      r,
+		IdleTimeout:  time.Minute,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
-	// Graceful shutdown
+	shutdownError := make(chan error)
+
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("server error", slog.String("error", err.Error()))
-			os.Exit(1)
-		}
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+		s := <-quit
+
+		slog.Info("shutting down server", "signal", s.String())
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		shutdownError <- srv.Shutdown(ctx)
 	}()
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Info("shutting down server...")
+	slog.Info("starting server", "addr", srv.Addr)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	if err := srv.Shutdown(ctx); err != nil {
-		log.Error("server shutdown failed", slog.String("error", err.Error()))
+	err = srv.ListenAndServe()
+	if !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("server error", "error", err)
 		os.Exit(1)
 	}
 
-	log.Info("server exited properly")
+	err = <-shutdownError
+	if err != nil {
+		slog.Error("shutdown error", "error", err)
+		os.Exit(1)
+	}
+
+	slog.Info("server stopped")
 }
 
