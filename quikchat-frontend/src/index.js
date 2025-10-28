@@ -3,7 +3,7 @@ import { ChatPage } from './pages/ChatPage.js';
 import { ProfilePage } from './pages/ProfilePage.js';
 import { FriendsPage } from './pages/FriendsPage.js';
 import { NotificationPage } from './pages/NotificationPage.js';
-import { render } from './utils/dom.js';
+// import { render } from './utils/dom.js';
 import { isAuthenticated, logout } from './store/authStore.js';
 import { WebSocketService } from './services/WebSocketService.js';
 import { Navbar } from './components/Navbar.js';

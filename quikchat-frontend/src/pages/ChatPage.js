@@ -1,7 +1,7 @@
 import { fetchMessages, sendMessage, getPresignedUrl, uploadFile } from '../api/messages.js';
 import { MessageDisplay } from '../components/MessageDisplay.js';
 import { chatStore } from '../store/chatStore.js';
-import { connect as connectWebSocket } from '../services/WebSocketService.js';
+import { WebSocketService } from '../services/WebSocketService.js';
 
 // For demonstration purposes
 const CURRENT_USER_ID = parseInt(localStorage.getItem('user_id'), 10);
@@ -165,7 +165,7 @@ export function ChatPage() {
         .catch(error => console.error('Failed to fetch initial messages:', error));
 
     // Connect WebSocket
-    connectWebSocket();
+    WebSocketService.connect()
 
     // Cleanup on component removal
     const observer = new MutationObserver((mutations, obs) => {

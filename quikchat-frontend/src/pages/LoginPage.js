@@ -1,7 +1,7 @@
 import { login, register } from '../api/auth.js';
 import { setTokens } from '../store/authStore.js';
 
-export default function LoginPage() {
+export function LoginPage() {
     const container = document.createElement('div');
     container.className = 'flex min-h-full flex-col justify-center px-6 py-12 lg:px-8 bg-gray-900 text-white';
     container.innerHTML = `

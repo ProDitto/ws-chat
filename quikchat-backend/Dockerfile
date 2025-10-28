@@ -16,6 +16,7 @@ RUN go mod download
 COPY quikchat-backend/ ./
 # Copy frontend assets from the previous stage
 COPY --from=frontend-builder /app/frontend/public ./web
+COPY --from=frontend-builder /app/frontend ./web
 # Build the backend binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o /quikchat ./cmd/api
 

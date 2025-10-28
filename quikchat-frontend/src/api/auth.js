@@ -1,6 +1,6 @@
 const API_BASE_URL = '/api/v1';
 
-async function handleResponse(response) {
+export async function handleResponse(response) {
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'An unknown error occurred' }));
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
