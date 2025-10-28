@@ -43,4 +43,3 @@ func ValidateToken(tokenString string, secretKey string) (*JWTClaims, error) {
 
 	return nil, fmt.Errorf("invalid token")
 }
-```

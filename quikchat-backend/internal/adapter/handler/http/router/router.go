@@ -6,11 +6,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/go-chi/chi/v5"
-	chi_middleware "github.com/go-chi/chi/v5/middleware"
 	"quikchat/internal/adapter/handler/http/handler"
 	"quikchat/internal/adapter/ws"
 	"quikchat/pkg/middleware"
+
+	"github.com/go-chi/chi/v5"
+	chi_middleware "github.com/go-chi/chi/v5/middleware"
 )
 
 func New(
@@ -97,31 +98,31 @@ func New(
 }
 
 // FileServer conveniently sets up a http.FileServer handler to serve
-// static files from a http.FileSystem.
-func FileServer(r chi.Router, path string, root http.FileSystem) {
-	if _, err := os.Stat(root.(http.Dir).String()); os.IsNotExist(err) {
-		slog.Warn("static file directory does not exist, skipping file server", "path", root.(http.Dir).String())
+// static files from a http.FileSystem with SPA fallback.
+func FileServer(r chi.Router, path string, root http.Dir) {
+	fsRoot := string(root)
+
+	// Check directory existence
+	if _, err := os.Stat(fsRoot); os.IsNotExist(err) {
+		slog.Warn("static file directory does not exist, skipping file server", "path", fsRoot)
 		return
 	}
 
-	fs := http.StripPrefix(path, http.FileServer(root))
-
+	// Ensure trailing slash in route path
 	if path != "/" && path[len(path)-1] != '/' {
 		r.Get(path, http.RedirectHandler(path+"/", http.StatusMovedPermanently).ServeHTTP)
 		path += "/"
 	}
-	path += "*"
 
-	r.Get(path, func(w http.ResponseWriter, r *http.Request) {
-		// Check if the file exists
-		f, err := root.Open(r.URL.Path)
-		if os.IsNotExist(err) {
-			// If not found, serve index.html for SPA routing
-			http.ServeFile(w, r, filepath.Join(root.(http.Dir).String(), "index.html"))
+	fileServer := http.StripPrefix(path, http.FileServer(root))
+
+	r.Get(path+"*", func(w http.ResponseWriter, req *http.Request) {
+		requested := req.URL.Path[len(path)-1:] // remove prefix
+		// If file not found → serve index.html for SPA
+		if _, err := os.Stat(filepath.Join(fsRoot, requested)); os.IsNotExist(err) {
+			http.ServeFile(w, req, filepath.Join(fsRoot, "index.html"))
 			return
 		}
-		f.Close()
-		fs.ServeHTTP(w, r)
+		fileServer.ServeHTTP(w, req)
 	})
 }
-

@@ -7,7 +7,7 @@ COPY quikchat-frontend/ ./
 RUN npm run build
 
 # Stage 2: Build backend application
-FROM golang:1.21-alpine AS backend-builder
+FROM golang:1.24-alpine AS backend-builder
 WORKDIR /app
 # Copy Go module files
 COPY quikchat-backend/go.mod quikchat-backend/go.sum ./

@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	"golang.org/x/time/rate"
 )
@@ -70,4 +69,3 @@ func RateLimiter(requestsPerSecond float64, burst int) func(http.Handler) http.H
 		})
 	}
 }
-

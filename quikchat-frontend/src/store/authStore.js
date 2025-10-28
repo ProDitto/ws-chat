@@ -30,4 +30,3 @@ export function isAuthenticated() {
     // In a real app, you'd also check token expiry
     return !!accessToken;
 }
-```

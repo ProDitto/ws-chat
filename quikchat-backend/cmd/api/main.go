@@ -77,6 +77,7 @@ func main() {
 	// Initialize router
 	r := router.New(userHandler, friendHandler, messageHandler, groupHandler, notificationHandler, hub, cfg.JWTSecretKey)
 
+
 	// Start server
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
@@ -107,4 +108,3 @@ func main() {
 
 	slog.Info("server exited properly")
 }
-
