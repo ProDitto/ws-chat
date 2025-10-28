@@ -1,61 +1,66 @@
 import { getAccessToken } from '../store/authStore.js';
+import { chatStore } from '../store/chatStore.js';
+import { notificationStore } from '../store/notificationStore.js';
 
 let socket = null;
-let messageListeners = [];
+let reconnectInterval = 5000;
+let shouldReconnect = false;
 
 function connect() {
     const token = getAccessToken();
-    if (!token || (socket && socket.readyState === WebSocket.OPEN)) {
+    if (!token) {
+        console.log("WebSocket: No access token found.");
         return;
     }
 
+    shouldReconnect = true;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    
-    // Pass token as a query parameter for authentication
-    socket = new WebSocket(`${protocol}//${host}/api/v1/ws?auth=${token}`);
+    const url = `${protocol}//${window.location.host}/api/v1/ws?auth=${token}`;
+
+    socket = new WebSocket(url);
 
     socket.onopen = () => {
-        console.log('WebSocket connection established');
+        console.log("WebSocket connection established.");
     };
 
     socket.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        messageListeners.forEach(listener => listener(message));
+        try {
+            const data = JSON.parse(event.data);
+            if (data.type === 'new_message') {
+                const message = data.payload;
+                chatStore.addMessage(message.conversation_id, message);
+            } else if (data.type === 'new_notification') {
+                const notification = data.payload;
+                notificationStore.addNotification(notification);
+            }
+        } catch (error) {
+            console.error("Error parsing WebSocket message:", error);
+        }
     };
 
     socket.onclose = () => {
-        console.log('WebSocket connection closed. Attempting to reconnect...');
-        setTimeout(connect, 5000); // Reconnect after 5 seconds
+        console.log("WebSocket connection closed.");
+        if (shouldReconnect) {
+            setTimeout(connect, reconnectInterval);
+        }
     };
 
     socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error("WebSocket error:", error);
         socket.close();
     };
 }
 
 function disconnect() {
+    shouldReconnect = false;
     if (socket) {
-        socket.onclose = null; // Prevent reconnection logic from firing
         socket.close();
         socket = null;
-        console.log('WebSocket connection disconnected');
     }
-}
-
-function addMessageListener(callback) {
-    messageListeners.push(callback);
-}
-
-function removeMessageListener(callback) {
-    messageListeners = messageListeners.filter(listener => listener !== callback);
+    console.log("WebSocket disconnected by client.");
 }
 
 export const WebSocketService = {
     connect,
     disconnect,
-    addMessageListener,
-    removeMessageListener,
 };
-

@@ -2,45 +2,60 @@ import { LoginPage } from './pages/LoginPage.js';
 import { ChatPage } from './pages/ChatPage.js';
 import { ProfilePage } from './pages/ProfilePage.js';
 import { FriendsPage } from './pages/FriendsPage.js';
+import { NotificationPage } from './pages/NotificationPage.js';
 import { render } from './utils/dom.js';
 import { isAuthenticated, logout } from './store/authStore.js';
 import { WebSocketService } from './services/WebSocketService.js';
+import { Navbar } from './components/Navbar.js';
 
 const routes = {
     '/': ChatPage,
     '/login': LoginPage,
     '/profile': ProfilePage,
     '/friends': FriendsPage,
+    '/notifications': NotificationPage,
 };
 
-const router = () => {
+const protectedRoutes = ['/', '/profile', '/friends', '/notifications'];
+
+function router() {
     const path = window.location.hash.slice(1) || '/';
+    const appElement = document.getElementById('app');
+    appElement.innerHTML = ''; // Clear the app container
 
-    if (isAuthenticated()) {
-        WebSocketService.connect(); // Connect WebSocket if authenticated
-        if (path === '/login') {
-            window.location.hash = '/';
-            return;
-        }
-        const page = routes[path] || routes['/'];
-        render(page());
-    } else {
-        WebSocketService.disconnect(); // Disconnect if not authenticated
-        if (path !== '/login') {
-            window.location.hash = '/login';
-            return;
-        }
-        render(LoginPage());
+    const isAuth = isAuthenticated();
+    const isProtectedRoute = protectedRoutes.includes(path);
+
+    if (isProtectedRoute && !isAuth) {
+        window.location.hash = '/login';
+        return;
     }
-};
 
-window.addEventListener('DOMContentLoaded', router);
+    if (path === '/login' && isAuth) {
+        window.location.hash = '/';
+        return;
+    }
+
+    if (isAuth) {
+        appElement.appendChild(Navbar());
+        WebSocketService.connect();
+    } else {
+        WebSocketService.disconnect();
+    }
+
+    const pageContainer = document.createElement('div');
+    pageContainer.className = 'page-container'; // Add a class for styling if needed
+    const page = routes[path] || routes['/']; // Fallback to a default page
+    pageContainer.appendChild(page());
+    appElement.appendChild(pageContainer);
+}
+
 window.addEventListener('hashchange', router);
+window.addEventListener('DOMContentLoaded', router);
 
-// Custom event for logout
+// Custom event listener for logout
 window.addEventListener('logout', () => {
     logout();
-    WebSocketService.disconnect(); // Also disconnect on logout event
+    WebSocketService.disconnect();
     window.location.hash = '/login';
 });
-
