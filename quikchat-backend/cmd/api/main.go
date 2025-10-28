@@ -10,77 +10,77 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"quikchat/internal/adapter/handler/http/handler"
 	"quikchat/internal/adapter/handler/http/router"
 	"quikchat/internal/adapter/storage/postgres"
 	"quikchat/internal/service"
 	"quikchat/pkg/config"
 	"quikchat/pkg/logger"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
-	// Load configuration
+	log := logger.New(os.Stdout)
+	log.Info("starting quikchat server")
+
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Error("failed to load configuration", "error", err)
+		log.Error("failed to load config", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 
-	// Initialize logger
-	log := logger.New(os.Stdout)
-	slog.SetDefault(log)
-
-	// Connect to database
+	// Database connection
 	dbpool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
 	if err != nil {
-		log.Error("unable to connect to database", "error", err)
+		log.Error("unable to connect to database", slog.String("error", err.Error()))
 		os.Exit(1)
 	}
 	defer dbpool.Close()
 
-	log.Info("successfully connected to database")
-
-	// Initialize repositories
+	// Repositories
 	userRepo := postgres.NewUserRepository(dbpool)
+	friendRepo := postgres.NewFriendRepository(dbpool)
+	blockRepo := postgres.NewBlockRepository(dbpool)
 
-	// Initialize services (use cases)
-	userService := service.NewUserService(userRepo, cfg.JWTSecretKey, cfg.AccessTokenExpiry, cfg.RefreshTokenExpiry)
+	// Services (Use Cases)
+	userService := service.NewUserService(userRepo, blockRepo, cfg.JWTSecretKey, cfg.AccessTokenExpiry, cfg.RefreshTokenExpiry)
+	friendService := service.NewFriendService(friendRepo, userRepo, blockRepo)
 
-	// Initialize handlers
+	// HTTP Handlers
 	userHandler := handler.NewUserHandler(userService)
+	friendHandler := handler.NewFriendHandler(friendService)
 
-	// Initialize router
-	r := router.New(userHandler, cfg.JWTSecretKey)
+	// Router
+	r := router.New(userHandler, friendHandler, cfg.JWTSecretKey)
 
-	// Start server
+	// Server setup
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%d", cfg.Port),
 		Handler: r,
 	}
 
+	// Graceful shutdown
 	go func() {
-		log.Info(fmt.Sprintf("starting server on port %d", cfg.Port))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error("could not start server", "error", err)
+			log.Error("server error", slog.String("error", err.Error()))
 			os.Exit(1)
 		}
 	}()
 
-	// Graceful shutdown
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
-
-	log.Info("shutting down server gracefully")
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Info("shutting down server...")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Error("server shutdown failed", "error", err)
+		log.Error("server shutdown failed", slog.String("error", err.Error()))
+		os.Exit(1)
 	}
+
+	log.Info("server exited properly")
 }
 

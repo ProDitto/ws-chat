@@ -1,39 +1,38 @@
-import { render } from './utils/dom.js';
 import { isAuthenticated, logout } from './store/authStore.js';
-import LoginPage from './pages/LoginPage.js';
-import ChatPage from './pages/ChatPage.js';
+import { render } from './utils/dom.js';
+import { LoginPage } from './pages/LoginPage.js';
+import { ChatPage } from './pages/ChatPage.js';
+import { ProfilePage } from './pages/ProfilePage.js';
+import { FriendsPage } from './pages/FriendsPage.js';
 
 const routes = {
     '/': ChatPage,
     '/login': LoginPage,
+    '/profile': ProfilePage,
+    '/friends': FriendsPage,
 };
 
 function router() {
     const path = window.location.hash.slice(1) || '/';
-    
-    if (!isAuthenticated() && path !== '/login') {
+    const page = routes[path] || ChatPage; // Default to ChatPage if route not found
+
+    if (path !== '/login' && !isAuthenticated()) {
         window.location.hash = '/login';
         return;
     }
 
-    if (isAuthenticated() && path === '/login') {
+    if (path === '/login' && isAuthenticated()) {
         window.location.hash = '/';
         return;
     }
 
-    const page = routes[path] || routes['/']; // Default to chat page if authenticated
-    render(page());
+    render(page);
 }
 
-// Handle initial page load
 document.addEventListener('DOMContentLoaded', router);
-
-// Handle hash changes
 window.addEventListener('hashchange', router);
 
-// Handle logout globally
 document.addEventListener('logout', () => {
     logout();
     window.location.hash = '/login';
 });
-```
